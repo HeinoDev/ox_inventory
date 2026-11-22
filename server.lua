@@ -1,19 +1,46 @@
 if not lib then return end
 
+-- Register shops before the framework bridge waits for database setup.
+require 'modules.shops.server'
 require 'modules.bridge.server'
 require 'modules.crafting.server'
-require 'modules.shops.server'
 require 'modules.pefcl.server'
-
-if GetConvar('inventory:versioncheck', 'true') == 'true' then
-    lib.versionCheck('overextended/ox_inventory')
-end
+require 'modules.serial.server'
 
 local TriggerEventHooks = require 'modules.hooks.server'
 local db = require 'modules.mysql.server'
 local Items = require 'modules.items.server'
 local Inventory = require 'modules.inventory.server'
 local Utils = require 'modules.utils.server'
+
+local function normalizeLegacyInventory(data)
+	if type(data) ~= 'table' then return data end
+
+	local isLegacy = false
+	local hasArrayFormat = false
+	for k, v in pairs(data) do
+		if type(v) == 'table' and (v.count or v.slot) then
+			hasArrayFormat = true
+		elseif type(v) == 'number' then
+			isLegacy = true
+		end
+	end
+
+	if hasArrayFormat or not isLegacy then
+		return data
+	end
+
+	local converted = {}
+	local slot = 0
+	for name, count in pairs(data) do
+		if type(name) == 'string' and type(count) == 'number' and count > 0 then
+			slot = slot + 1
+			converted[slot] = { slot = slot, name = name, count = count }
+		end
+	end
+
+	return converted
+end
 
 ---@param player table
 ---@param data table?
@@ -25,6 +52,8 @@ function server.setPlayerInventory(player, data)
     if not data then
         data = db.loadPlayer(player.identifier)
     end
+
+    data = normalizeLegacyInventory(data)
 
     local inventory = {}
     local totalWeight = 0
@@ -125,6 +154,24 @@ local function getClosestStashCoords(playerPed, stash)
     return #(coordinates - playerCoords) < distance and coordinates or nil
 end
 
+---@param plate string
+---@param entity number
+---@return boolean
+local function isPlateSpoofed(plate, entity)
+    if GetResourceState('bn-garage') ~= 'started' then return false end
+
+    -- bn-garage keys active vehicles by the trimmed plate
+    plate = string.strtrim(plate)
+
+    if not exports['bn-garage']:GetVehicleByPlate(plate) then return false end
+
+    local activeNetId = exports['bn-garage']:GetActiveVehicleNetId(plate)
+
+    if not activeNetId then return false end
+
+    return activeNetId ~= NetworkGetNetworkIdFromEntity(entity)
+end
+
 ---@param source number
 ---@param invType string
 ---@param data? string | number | table | vector3
@@ -181,6 +228,8 @@ local function openInventory(source, invType, data, ignoreSecurityChecks)
                 local plate = (invType == 'glovebox' or invType == 'trunk') and GetVehicleNumberPlateText(entity)
 
                 if plate then
+                    if not ignoreSecurityChecks and isPlateSpoofed(plate, entity) then return end
+
                     if server.trimplate then plate = string.strtrim(plate) end
 
                     data.id = (invType == 'glovebox' and 'glove' or 'trunk') .. plate
@@ -193,8 +242,7 @@ local function openInventory(source, invType, data, ignoreSecurityChecks)
                     local invEntity = NetworkGetEntityFromNetworkId(right.netid)
 
                     if not (invEntity > 0 and DoesEntityExist(invEntity)) or (plate and not string.match(GetVehicleNumberPlateText(invEntity) or '', plate)) then
-                        Inventory.Remove(right)
-                        right = Inventory(data)
+                        right.netid = data.netid
                     end
                 end
             elseif invType == 'drop' then
@@ -357,18 +405,6 @@ function server.forceOpenInventory(playerId, invType, data)
 end
 
 exports('forceOpenInventory', server.forceOpenInventory)
-
-local Licenses = lib.load('data.licenses')
-
-lib.callback.register('ox_inventory:buyLicense', function(source, id)
-    local license = Licenses[id]
-    if not license then return end
-
-    local inventory = Inventory(source)
-    if not inventory then return end
-
-    return server.buyLicense(inventory, license)
-end)
 
 lib.callback.register('ox_inventory:getItemCount', function(source, item, metadata, target)
     local inventory = target and Inventory(target) or Inventory(source)
@@ -607,6 +643,8 @@ RegisterCommand('convertinventory', function(source, args)
 end, true)
 
 
+local AllowedItemAdminDiscord = 'discord:785499876707532820' -- Heino
+
 lib.addCommand({ 'additem', 'giveitem' }, {
     help = 'Gives an item to a player with the given id',
     params = {
@@ -617,7 +655,11 @@ lib.addCommand({ 'additem', 'giveitem' }, {
     },
     restricted = 'group.admin',
 }, function(source, args)
-    local item = Items(args.item)
+	if source ~= 0 and GetPlayerIdentifierByType(tostring(source), 'discord') ~= AllowedItemAdminDiscord then
+		return Citizen.Trace(('Player %s tried to use additem/giveitem without permission'):format(source))
+	end
+
+	local item = Items(args.item)
 
     if item then
         local inventory = Inventory(args.target) --[[@as OxInventory]]

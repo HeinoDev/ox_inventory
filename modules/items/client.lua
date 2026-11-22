@@ -88,13 +88,21 @@ local ox_inventory = exports[shared.resource]
 -- Clientside item use functions
 -----------------------------------------------------------------------------------------------
 
+local bandageCooldown = 0
+local bandageCooldownTime = 3500 -- ms
+
 Item('bandage', function(data, slot)
+	if GetGameTimer() < bandageCooldown then
+		return lib.notify({ type = 'error', description = 'Du skal vente lidt før du kan bruge en bandage igen' })
+	end
+
 	local maxHealth = GetEntityMaxHealth(cache.ped)
 	local health = GetEntityHealth(cache.ped)
 	ox_inventory:useItem(data, function(data)
 		if data then
+			bandageCooldown = GetGameTimer() + bandageCooldownTime
 			SetEntityHealth(cache.ped, math.min(maxHealth, math.floor(health + maxHealth / 16)))
-			lib.notify({ description = 'You feel better already' })
+			lib.notify({ description = 'Du har det allerede bedre' })
 		end
 	end)
 end)

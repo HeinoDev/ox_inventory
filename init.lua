@@ -86,7 +86,7 @@ else
     client = {
         player = lib.player:new(-1),
         autoreload = GetConvarBool('inventory:autoreload', false),
-        screenblur = GetConvarBool('inventory:screenblur', true),
+        screenblur = GetConvarBool('inventory:screenblur', false),
         keys = json.decode(GetConvar('inventory:keys', '')) or { 'F2', 'K', 'TAB' },
         enablekeys = json.decode(GetConvar('inventory:enablekeys', '[249]')),
         aimedfiring = GetConvarBool('inventory:aimedfiring', false),
@@ -102,7 +102,7 @@ else
         suppresspickups = GetConvarBool('inventory:suppresspickups', true),
         disableweapons = GetConvarBool('inventory:disableweapons', false),
         disablesetupnotification = GetConvarBool('inventory:disablesetupnotification', false),
-        enablestealcommand = GetConvarBool('inventory:enablestealcommand', true),
+        enablestealcommand = GetConvarBool('inventory:enablestealcommand', false),
         gloveboxseatrestriction = GetConvarInt('inventory:gloveboxseatrestriction', 0) == 1
     }
 

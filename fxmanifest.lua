@@ -6,7 +6,7 @@ name 'ox_inventory'
 author 'Overextended'
 version '2.48.1'
 repository 'https://github.com/overextended/ox_inventory'
-description 'Slot-based inventory with item metadata support'
+description 'Design by Heino'
 
 dependencies {
     '/server:6116',
@@ -39,9 +39,16 @@ files {
     'web/build/index.html',
     'web/build/assets/*.js',
     'web/build/assets/*.css',
+    'web/images/*.webp',
     'web/images/*.png',
+    'web/images/*.jpg',
+    'web/images/*.jpeg',
+    'web/images/*.gif',
+    'web/images/*.svg',
+    'web/images/*.avif',
     'modules/**/shared.lua',
     'modules/**/client.lua',
     'modules/bridge/**/client.lua',
+    'config.cfg',
     'data/*.lua',
 }

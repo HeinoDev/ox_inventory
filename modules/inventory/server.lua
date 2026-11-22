@@ -1627,6 +1627,8 @@ local TriggerEventHooks = require 'modules.hooks.server'
 ---@field fromType string
 ---@field toType string
 ---@field coords? vector3
+---@field allowSwap? boolean
+---@field requireEmpty? boolean
 
 ---@param source number
 ---@param playerInventory OxInventory
@@ -1686,6 +1688,7 @@ local function dropItem(source, playerInventory, fromData, data)
 	playerInventory.changed = true
 
 	TriggerClientEvent('ox_inventory:createDrop', -1, dropId, Inventory.Drops[dropId], playerInventory.open and source, slot)
+	TriggerClientEvent('ox_inventory:itemNotify', source, { toData, 'ui_removed', toData.count })
 
 	if server.loglevel > 0 then
 		lib.logger(playerInventory.owner, 'swapSlots', ('%sx %s transferred from "%s" to "%s"'):format(data.count, toData.name, playerInventory.label, dropId))
@@ -1752,6 +1755,7 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 	local fromOtherPlayer = fromInventory.player and fromInventory ~= playerInventory
 	local toOtherPlayer = toInventory.player and toInventory ~= playerInventory
 	local toData = toInventory.items[data.toSlot]
+	if toData and data.requireEmpty == true then return false end
 
 	---@return boolean
 	local function partiesPresent()
@@ -1814,6 +1818,8 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 			}
 
 			if toData and ((toData.name ~= fromData.name) or not toData.stack or (not table.matches(toData.metadata, fromData.metadata))) then
+				if data.allowSwap == false then return false end
+
 				-- Swap items
 				local toWeight = not sameInventory and (toInventory.weight - toData.weight + fromData.weight) or 0
 				local fromWeight = not sameInventory and (fromInventory.weight + toData.weight - fromData.weight) or 0
@@ -1993,6 +1999,18 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 
 			fromInventory.items[data.fromSlot] = fromData
 			toInventory.items[data.toSlot] = toData
+
+			local pickedUp = fromInventory.type == 'drop' and toInventory == playerInventory
+			local dropped = toInventory.type == 'drop' and fromInventory == playerInventory
+
+			if pickedUp or dropped then
+				local swapped = hookPayload.action == 'swap'
+				TriggerClientEvent('ox_inventory:itemNotify', source, { toData, pickedUp and 'ui_added' or 'ui_removed', swapped and toData.count or data.count })
+
+				if swapped then
+					TriggerClientEvent('ox_inventory:itemNotify', source, { fromData, pickedUp and 'ui_removed' or 'ui_added', fromData.count })
+				end
+			end
 
 			if fromInventory.changed ~= nil then fromInventory.changed = true end
 			if toInventory.changed ~= nil then toInventory.changed = true end
@@ -2510,13 +2528,38 @@ RegisterServerEvent('ox_inventory:closeInventory', function()
 	end
 end)
 
+local clientSettableStates = {
+	invBusy = 'boolean',
+	invOpen = 'boolean',
+	invHotkeys = 'boolean',
+	canUseWeapons = 'boolean',
+}
+
+RegisterNetEvent('ox_inventory:setPlayerState', function(key, value)
+	if clientSettableStates[key] ~= type(value) then return end
+
+	Player(source).state:set(key, value, true)
+end)
+
+RegisterNetEvent('ox_inventory:markDumpster', function(netId, isDumpster)
+	if type(netId) ~= 'number' or type(isDumpster) ~= 'boolean' then return end
+
+	local entity = NetworkGetEntityFromNetworkId(netId)
+
+	if entity == 0 or Entity(entity).state.isDumpster ~= nil then return end
+
+	Entity(entity).state:set('isDumpster', isDumpster, true)
+end)
+
 local function giveItem(playerId, slot, target, count)
+	if math.type(slot) ~= 'integer' or math.type(target) ~= 'integer' or target == playerId then return end
+
 	local fromInventory = Inventory(playerId)
 	local toInventory = Inventory(target)
 
 	if not fromInventory or not toInventory then return end
 
-	count = math.max(1, math.floor(count or 1))
+	count = math.max(1, math.floor(tonumber(count) or 1))
 
 	if toInventory.player then
 		local data = fromInventory.items[slot]
@@ -2855,5 +2898,9 @@ function Inventory.InspectInventory(playerId, invId)
 end
 
 exports('InspectInventory', Inventory.InspectInventory)
+
+function Inventory.GetLoaded()
+	return Inventories
+end
 
 return Inventory

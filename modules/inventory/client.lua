@@ -17,7 +17,9 @@ if shared.networkdumpsters then
                 local model = GetEntityModel(object)
                 local isDumpster = Inventory.Dumpsters:includes(model)
 
-                state.isDumpster = isDumpster
+                if NetworkGetEntityIsNetworked(object) then
+                    TriggerServerEvent('ox_inventory:markDumpster', NetworkGetNetworkIdFromEntity(object), isDumpster)
+                end
 
                 if isDumpster then
                     FreezeEntityPosition(object, true)
@@ -269,8 +271,6 @@ function Inventory.GetSlotIdsWithItem(itemName, metadata, strict)
         return items
     end
 end
-
-exports('GetSlotIdsWithItem', Inventory.GetSlotIdsWithItem)
 
 ---@param itemName string
 ---@param metadata? any

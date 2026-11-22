@@ -30,7 +30,7 @@ local function setupShopItems(id, shopType, shopName, groups)
 				slot = i,
 				weight = Item.weight,
 				count = slot.count,
-				price = (server.randomprices and (not slot.currency or slot.currency == 'money')) and (math.ceil(slot.price * (math.random(80, 120)/100))) or slot.price or 0,
+				price = (shopType ~= 'RedirectBlackMarket' and server.randomprices and (not slot.currency or slot.currency == 'money')) and (math.ceil(slot.price * (math.random(80, 120)/100))) or slot.price or 0,
 				metadata = slot.metadata,
 				license = slot.license,
 				currency = slot.currency,
@@ -171,8 +171,18 @@ lib.callback.register('ox_inventory:openShop', function(source, data)
 	return { label = playerInv.label, type = playerInv.type, slots = playerInv.slots, weight = playerInv.weight, maxWeight = playerInv.maxWeight }, shop
 end)
 
-local function canAffordItem(inv, currency, price)
-	local canAfford = price >= 0 and Inventory.GetItemCount(inv, currency) >= price
+local function canAffordItem(inv, currency, price, paymentMethod)
+	local canAfford = false
+	
+	if paymentMethod == 'bank' and (currency == 'money' or not currency) then
+		local xPlayer = exports.es_extended:getSharedObject().GetPlayerFromId(inv.id)
+		if xPlayer then
+			local bankMoney = xPlayer.getAccount('bank').money
+			canAfford = price >= 0 and bankMoney >= price
+		end
+	else
+		canAfford = price >= 0 and Inventory.GetItemCount(inv, currency) >= price
+	end
 
 	return canAfford or {
 		type = 'error',
@@ -180,8 +190,23 @@ local function canAffordItem(inv, currency, price)
 	}
 end
 
-local function removeCurrency(inv, currency, price)
-	Inventory.RemoveItem(inv, currency, price)
+local function removeCurrency(inv, currency, price, paymentMethod)
+	if paymentMethod == 'bank' and (currency == 'money' or not currency) then
+		local ESX = exports.es_extended:getSharedObject()
+		local xPlayer = ESX.GetPlayerFromId(inv.id)
+		if xPlayer then
+			xPlayer.removeAccountMoney('bank', price, 'Shop purchase')
+			
+			-- Save accounts to database immediately
+			local accounts = xPlayer.getAccounts(true)
+			MySQL.update('UPDATE users SET accounts = ? WHERE identifier = ?', { json.encode(accounts), xPlayer.identifier })
+			
+			-- Sync bank balance to client (for HUD/banking UI)
+			TriggerClientEvent('esx:setAccountMoney', inv.id, xPlayer.getAccount('bank'))
+		end
+	else
+		Inventory.RemoveItem(inv, currency, price)
+	end
 end
 
 local function isRequiredGrade(grade, rank)
@@ -253,7 +278,8 @@ lib.callback.register('ox_inventory:buyItem', function(source, data)
 					return false, false, { type = 'error', description = locale('cannot_carry') }
 				end
 
-				local canAfford = canAffordItem(playerInv, currency, price)
+				local paymentMethod = data.paymentMethod or 'cash'
+				local canAfford = canAffordItem(playerInv, currency, price, paymentMethod)
 
 				if canAfford ~= true then
 					return false, false, canAfford
@@ -287,7 +313,7 @@ lib.callback.register('ox_inventory:buyItem', function(source, data)
 				end
 
 				playerInv.weight = newWeight
-				removeCurrency(playerInv, currency, price)
+				removeCurrency(playerInv, currency, price, paymentMethod)
 
 				if server.syncInventory then server.syncInventory(playerInv) end
 
