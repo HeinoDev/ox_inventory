@@ -48,6 +48,73 @@ exports('ItemList', function(item) return getItem(nil, item) end)
 
 local Inventory
 
+local function formatDatabaseItem(item)
+	local definition = ('\n\t[%q] = {\n\t\tlabel = %q,\n\t\tweight = %q,\n\t\tstack = %q,\n\t\tclose = %q,\n')
+		:format(item.name, item.label, item.weight, item.stack, item.close)
+
+	if item.description ~= nil then
+		definition = definition .. ('\t\tdescription = %q,\n'):format(item.description)
+	end
+
+	return definition .. '\t},\n'
+end
+
+local function importDatabaseItems(items)
+	local pending, definitions = {}, {}
+
+	for i = 1, #items do
+		local item = items[i]
+		local name = item.name
+
+		if type(name) == 'string' and name ~= '' and not ItemList[name] and not pending[name] then
+			item.label = item.label or name
+			item.weight = tonumber(item.weight) or 0
+			item.stack = item.stackable ~= false and item.stackable ~= 0
+			item.close = item.closeonuse ~= false and item.closeonuse ~= 0
+			pending[name] = item
+			definitions[#definitions + 1] = formatDatabaseItem(item)
+		end
+	end
+
+	if #definitions == 0 then return 0 end
+
+	local path = 'data/items.lua'
+	local file = LoadResourceFile(shared.resource, path)
+	local prefix, trailingWhitespace
+	if file then prefix, trailingWhitespace = file:match('^(.*)}(%s*)$') end
+
+	if not prefix then
+		warn(('Could not find the closing item table in %s'):format(path))
+		return 0
+	end
+
+	local suffix = table.concat(definitions) .. '}' .. trailingWhitespace
+	local output = prefix .. suffix
+	local chunkName = ('@@%s/%s'):format(shared.resource, path)
+
+	if not load(output, chunkName, 't') then
+		-- The last existing item may omit its trailing comma.
+		output = prefix .. '\n,' .. suffix
+		local chunk, err = load(output, chunkName, 't')
+
+		if not chunk then
+			warn(('Could not update %s: %s'):format(path, err))
+			return 0
+		end
+	end
+
+	if not SaveResourceFile(shared.resource, path, output, -1) then
+		warn(('Could not save imported items to %s'):format(path))
+		return 0
+	end
+
+	for name, item in pairs(pending) do
+		ItemList[name] = item
+	end
+
+	return #definitions
+end
+
 CreateThread(function()
 	Inventory = require 'modules.inventory.server'
 
@@ -57,54 +124,9 @@ CreateThread(function()
 		local success, items = pcall(MySQL.query.await, 'SELECT * FROM items')
 
 		if success and items and next(items) then
-			local dump = {}
-			local count = 0
+			local count = importDatabaseItems(items)
 
-			for i = 1, #items do
-				local item = items[i]
-
-				if not ItemList[item.name] then
-					item.close = item.closeonuse == nil and true or item.closeonuse
-					item.stack = item.stackable == nil and true or item.stackable
-					item.description = item.description
-					item.weight = item.weight or 0
-					dump[i] = item
-					count += 1
-				end
-			end
-
-			if table.type(dump) ~= "empty" then
-				local file = {string.strtrim(LoadResourceFile(shared.resource, 'data/items.lua'))}
-				file[1] = file[1]:gsub('}$', '')
-
-				---@todo separate into functions for reusability, properly handle nil values
-				local itemFormat = [[
-
-	[%q] = {
-		label = %q,
-		weight = %s,
-		stack = %s,
-		close = %s,
-		description = %q
-	},
-]]
-				local fileSize = #file
-
-				for _, item in pairs(dump) do
-					if not ItemList[item.name] then
-						fileSize += 1
-
-						local itemStr = itemFormat:format(item.name, item.label, item.weight, item.stack, item.close, item.description and json.encode(item.description) or 'nil')
-						-- temporary solution for nil values
-						itemStr = itemStr:gsub('[%s]-[%w]+ = "?nil"?,?', '')
-						file[fileSize] = itemStr
-						ItemList[item.name] = item
-					end
-				end
-
-				file[fileSize+1] = '}'
-
-				SaveResourceFile(shared.resource, 'data/items.lua', table.concat(file), -1)
+			if count > 0 then
 				shared.info(count, 'items have been copied from the database.')
 				shared.info('You should restart the resource to load the new items.')
 			end
