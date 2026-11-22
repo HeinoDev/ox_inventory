@@ -80,17 +80,35 @@ end
 local Vehicles = lib.load('data.vehicles')
 local RegisteredStashes = {}
 
+local function createStashClass(name)
+	local stash = setmetatable({
+		dbId = name,
+		type = 'stash',
+		capacityOverrides = setmetatable({}, { __mode = 'k' }),
+	}, { __index = OxInventory })
+
+	stash.__index = stash
+	stash.__newindex = function(inv, key, value)
+		if key == 'slots' or key == 'maxWeight' then
+			stash.capacityOverrides[inv] = true
+		end
+
+		rawset(inv, key, value)
+	end
+
+	RegisteredStashes[name] = stash
+	return stash
+end
+
 for _, stash in pairs(lib.load('data.stashes') or {}) do
-	RegisteredStashes[stash.name] = {
-		name = stash.name,
-		label = stash.label,
-		owner = stash.owner,
-		slots = stash.slots,
-		maxWeight = stash.weight,
-		groups = stash.groups or stash.jobs,
-		coords = shared.target and stash.target?.loc or stash.coords,
-        distance = stash.distance or 10
-	}
+	local class = createStashClass(stash.name)
+	class.label = stash.label or stash.name
+	class.defaultOwner = stash.owner
+	class.slots = stash.slots
+	class.maxWeight = stash.weight or shared.playerweight
+	class.groups = stash.groups or stash.jobs
+	class.coords = shared.target and stash.target?.loc or stash.coords
+	class.distance = stash.distance or 10
 end
 
 local GetVehicleNumberPlateText = GetVehicleNumberPlateText
@@ -188,26 +206,22 @@ local function loadInventoryData(data, player, ignoreSecurityChecks)
 		local stash = RegisteredStashes[data.id]
 
 		if stash then
-			if stash.jobs then stash.groups = stash.jobs end
 			if not ignoreSecurityChecks and player and stash.groups and not server.hasGroup(player, stash.groups) then return end
 
 			local owner
 
-			if stash.owner then
-				if stash.owner == true then
+			if stash.defaultOwner then
+				if stash.defaultOwner == true then
 					owner = data.owner or player?.owner
 				else
-					owner = stash.owner
+					owner = stash.defaultOwner
 				end
 			end
 
-			inventory = Inventories[owner and ('%s:%s'):format(stash.name, owner) or stash.name]
+			inventory = Inventories[owner and ('%s:%s'):format(stash.dbId, owner) or stash.dbId]
 
 			if not inventory then
-				inventory = Inventory.Create(stash.name, stash.label or stash.name, 'stash', stash.slots, 0, stash.maxWeight, owner, nil, stash.groups)
-                inventory.coords = stash.coords
-                inventory.distance = stash.distance
-                inventory.instance = stash.instance
+				inventory = Inventory.Create(stash.dbId, nil, 'stash', nil, 0, nil, owner)
 			end
 		end
 	end
@@ -229,7 +243,15 @@ setmetatable(Inventory, {
 		elseif type(inv) == 'table' then
 			if inv.__index then return inv end
 
+			if player and RegisteredStashes[inv.id] then
+				return loadInventoryData(inv, player, ignoreSecurityChecks)
+			end
+
 			return not inv.owner and Inventories[inv.id] or loadInventoryData(inv, player, ignoreSecurityChecks)
+		end
+
+		if player and RegisteredStashes[inv] then
+			return loadInventoryData({ id = inv }, player, ignoreSecurityChecks)
 		end
 
 		return Inventories[inv] or loadInventoryData({ id = inv }, player, ignoreSecurityChecks)
@@ -252,8 +274,34 @@ local function getInventory(inv, owner)
 	end
 end
 
-exports('Inventory', getInventory)
-exports('GetInventory', getInventory)
+-- FiveM serializes raw table fields for exports and events.
+local function inventoryData(inv)
+	if not inv or inv.type ~= 'stash' or getmetatable(inv) == OxInventory then return inv end
+
+	local data = {}
+
+	for key, value in pairs(inv) do
+		data[key] = value
+	end
+
+	data.label = inv.label
+	data.type = inv.type
+	data.slots = inv.slots
+	data.maxWeight = inv.maxWeight
+	data.groups = inv.groups
+	data.dbId = inv.dbId
+	data.coords = inv.coords
+	data.distance = inv.distance
+	data.instance = inv.instance
+	return data
+end
+
+local function getInventoryData(inv, owner)
+	return inventoryData(getInventory(inv, owner))
+end
+
+exports('Inventory', getInventoryData)
+exports('GetInventory', getInventoryData)
 
 ---@param invType string
 ---@param detailed? boolean return the full inventory instead of only the id
@@ -267,7 +315,7 @@ function Inventory.GetInventories(invType, detailed)
 
 	for _, inv in pairs(Inventories) do
 		if inv.type == invType then
-			returnData[#returnData + 1] = detailed and inv or inv.id
+			returnData[#returnData + 1] = detailed and inventoryData(inv) or inv.id
 		end
 	end
 
@@ -598,9 +646,9 @@ end, true)
 ---@param id string|number
 ---@param label string|nil
 ---@param invType string
----@param slots number
+---@param slots? number
 ---@param weight number
----@param maxWeight number
+---@param maxWeight? number
 ---@param owner? string | number | boolean
 ---@param items? table
 ---@param dbId? string | number
@@ -610,13 +658,10 @@ end, true)
 function Inventory.Create(id, label, invType, slots, weight, maxWeight, owner, items, groups, dbId)
 	if invType == 'player' and hasActiveInventory(id, owner) then return end
 
+	local stash = invType == 'stash' and RegisteredStashes[id]
 	local self = {
 		id = id,
-		label = label or id,
-		type = invType,
-		slots = slots,
 		weight = weight,
-		maxWeight = maxWeight or shared.playerweight,
 		owner = owner,
 		items = type(items) == 'table' and items,
 		open = false,
@@ -624,10 +669,19 @@ function Inventory.Create(id, label, invType, slots, weight, maxWeight, owner, i
 		get = Inventory.Get,
 		minimal = minimal,
 		time = os.time(),
-		groups = groups,
 		openedBy = {},
-        dbId = dbId
 	}
+
+	if not stash then
+		self.label = label or id
+		self.type = invType
+		self.slots = slots
+		self.maxWeight = maxWeight or shared.playerweight
+		self.groups = groups
+		self.dbId = dbId
+	end
+
+	setmetatable(self, stash or OxInventory)
 
 	if invType == 'drop' or invType == 'temp' or invType == 'dumpster' then
 		self.datastore = true
@@ -635,7 +689,7 @@ function Inventory.Create(id, label, invType, slots, weight, maxWeight, owner, i
 		self.changed = false
 
 		if invType ~= 'glovebox' and invType ~= 'trunk' then
-			self.dbId = id
+			if not stash then self.dbId = id end
 
 			if invType ~= 'player' and owner and type(owner) ~= 'boolean' then
 				self.id = ('%s:%s'):format(self.id, owner)
@@ -649,8 +703,8 @@ function Inventory.Create(id, label, invType, slots, weight, maxWeight, owner, i
 		self.weight = Inventory.CalculateWeight(items)
 	end
 
-	Inventories[self.id] = setmetatable(self, OxInventory)
-	return Inventories[self.id]
+	Inventories[self.id] = self
+	return self
 end
 
 ---@param inv inventory
@@ -2836,35 +2890,23 @@ local function registerStash(name, label, slots, maxWeight, owner, groups, coord
 		coords = coords,
 	})
 
-	local curStash = RegisteredStashes[name]
+	local stash = RegisteredStashes[name] or createStashClass(name)
+	stash.label = label or name
+	-- Changing the default owner affects future lookups without changing loaded database keys.
+	stash.defaultOwner = owner
+	stash.slots = slots
+	stash.maxWeight = maxWeight
+	stash.groups = groups
+	stash.coords = coords
+	stash.instance = instance
 
-	if curStash then
-		---@todo creating proper stash classes with inheritence would simplify updating data
-		---i.e. all stashes with the same type share groups, maxweight, slots, dbid, etc.
-		---only label, owner, weight, coords, and items really need to vary
-		for _, stash in pairs(Inventories) do
-			if stash.type == 'stash' and stash.dbId == name then
-				stash.label = label or stash.label
-				stash.owner = (owner and owner ~= true) and stash.owner or owner
-				stash.slots = slots or stash.slots
-				stash.maxWeight = maxWeight or stash.maxWeight
-				stash.groups = groups or stash.groups
-				stash.coords = coords or stash.coords
-				stash.instance = instance or stash.instance
-			end
-		end
+	-- Re-registration supersedes per-inventory capacity changes.
+	for inv in pairs(stash.capacityOverrides) do
+		rawset(inv, 'slots', nil)
+		rawset(inv, 'maxWeight', nil)
 	end
 
-	RegisteredStashes[name] = {
-		name = name,
-		label = label,
-		owner = owner,
-		slots = slots,
-		maxWeight = maxWeight,
-		groups = groups,
-		coords = coords,
-		instance = instance
-	}
+	table.wipe(stash.capacityOverrides)
 end
 
 exports('RegisterStash', registerStash)
@@ -2893,7 +2935,7 @@ function Inventory.InspectInventory(playerId, invId)
 
 	if playerInventory and inventory then
 		playerInventory:openInventory(inventory)
-		TriggerClientEvent('ox_inventory:viewInventory', playerId, playerInventory, inventory)
+		TriggerClientEvent('ox_inventory:viewInventory', playerId, playerInventory, inventoryData(inventory))
 	end
 end
 
