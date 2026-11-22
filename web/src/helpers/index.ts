@@ -137,6 +137,21 @@ export const getItemData = async (itemName: string) => {
   }
 };
 
+const parseMetadataImageUrl = (value: unknown) => {
+  if (typeof value !== 'string' || !/^(https?|nui):\/\/[^/?#\\\s]/i.test(value) || /[\\\u0000-\u001f\u007f]/.test(value)) return;
+
+  try {
+    const url = new URL(value);
+    if (!url.hostname || url.username || url.password) return;
+    if (url.protocol === 'nui:' && (url.port || !url.pathname || url.pathname === '/')) return;
+
+    // Slot and hotbar backgrounds use unquoted CSS url() values.
+    return url.href.replace(/['"()]/g, (character) => `%${character.charCodeAt(0).toString(16)}`);
+  } catch {
+    return;
+  }
+};
+
 export const getItemUrl = (item: string | SlotWithItem) => {
   const isObj = typeof item === 'object';
 
@@ -145,9 +160,14 @@ export const getItemUrl = (item: string | SlotWithItem) => {
 
     const metadata = item.metadata;
 
-    // @todo validate urls and support webp
-    if (metadata?.imageurl) return `${metadata.imageurl}`;
-    if (metadata?.image) return `${imagepath}/${metadata.image}.png`;
+    const imageUrl = parseMetadataImageUrl(metadata?.imageurl);
+    if (imageUrl) return imageUrl;
+
+    const image = metadata?.image;
+    if (typeof image === 'string' && image) {
+      const filename = /\.(png|webp|jpe?g|gif|svg|avif)$/i.test(image) ? image : `${image}.png`;
+      return `${imagepath}/${filename}`;
+    }
   }
 
   const itemName = isObj ? (item.name as string) : item;
