@@ -1,5 +1,5 @@
-web/*
-!web/build
+/web/*
+!/web/build/
 modules/logs/**/
 .cfg
 .luarc.jsonc
