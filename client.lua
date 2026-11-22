@@ -329,17 +329,22 @@ function client.openInventory(inv, data)
 
         if not rearDoors and DoesEntityExist(entity) then SetVehicleDoorOpen(entity, door, false, false) end
 
-        SetTimeout(200, function()
+        SetTimeout(rearDoors and 50 or 200, function()
             if currentInventory ~= trunk or not invOpen then return end
 
             if DoesEntityExist(entity) then
                 if rearDoors then
-                    Utils.PlayAnim(0, 'misschop_vehicleenter_exit', 'van_ds_open_door_for_chop', 3.0, 3.0, 1000, 48, 0.0, 0, 0, 0)
-                    Wait(350)
+                    Utils.PlayAnim(0, 'misschop_vehicleenter_exit', 'van_ds_open_door_for_chop', 2.0, 2.0, 1600, 48, 0.0, 0, 0, 0)
+                    Wait(300)
 
-                    if currentInventory == trunk and invOpen and DoesEntityExist(entity) and Inventory.CanAccessTrunk(entity) then
-                        for i = 1, #door do
-                            if GetIsDoorValid(entity, door[i]) then SetVehicleDoorOpen(entity, door[i], false, false) end
+                    for i = 1, #door do
+                        if currentInventory ~= trunk or not invOpen or not DoesEntityExist(entity) or not Inventory.CanAccessTrunk(entity) then
+                            break
+                        end
+
+                        if GetIsDoorValid(entity, door[i]) then
+                            SetVehicleDoorOpen(entity, door[i], false, false)
+                            if i < #door then Wait(180) end
                         end
                     end
                 else
