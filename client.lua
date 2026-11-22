@@ -1,6 +1,7 @@
 if not lib then return end
 
-require 'modules.bridge.client'
+local setPlayerDataHandler = require 'modules.bridge.client'
+if not lib then return end
 require 'modules.interface.client'
 
 local Utils = require 'modules.utils.client'
@@ -803,21 +804,20 @@ local currentInstance
 local playerCoords
 local Shops = require 'modules.shops.client'
 
----@todo remove or replace when the bridge module gets restructured
-function OnPlayerData(key, val)
+setPlayerDataHandler(function(key, value)
 	if key ~= 'groups' and key ~= 'ped' and key ~= 'dead' then return end
 
 	if key == 'groups' then
 		Inventory.Stashes()
 		Inventory.Evidence()
 		Shops.refreshShops()
-	elseif key == 'dead' and val then
+	elseif key == 'dead' and value then
 		currentWeapon = Weapon.Disarm(currentWeapon)
 		client.closeInventory()
 	end
 
 	Utils.WeaponWheel()
-end
+end)
 
 -- People consistently ignore errors when one of the "modules" failed to load
 if not Utils or not Weapon or not Items or not Inventory then return end

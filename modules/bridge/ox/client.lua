@@ -6,8 +6,9 @@ local player = Ox.GetPlayer()
 RegisterNetEvent('ox:playerLogout', client.onLogout)
 
 RegisterNetEvent('ox:setGroup', function(name, grade)
-    PlayerData.groups[name] = grade
-    OnPlayerData('groups')
+    local groups = PlayerData.groups
+    groups[name] = grade
+    client.setPlayerData('groups', groups)
 end)
 
 ---@diagnostic disable-next-line: duplicate-set-field

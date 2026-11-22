@@ -1,10 +1,13 @@
 if not lib then return end
 
----@diagnostic disable-next-line: duplicate-set-field
-function client.setPlayerData(key, value)
+local onPlayerDataChanged
+
+function client.updatePlayerData(key, value)
 	PlayerData[key] = value
-	OnPlayerData(key, value)
+	if onPlayerDataChanged then onPlayerDataChanged(key, value) end
 end
+
+client.setPlayerData = client.updatePlayerData
 
 ---Checks whether the player has a required group and rank
 ---@param group string | table<string, number | number[]>
@@ -81,4 +84,8 @@ if not success then
     lib.print.error(result)
     lib = nil
     return
+end
+
+return function(handler)
+    onPlayerDataChanged = handler
 end

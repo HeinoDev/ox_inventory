@@ -32,8 +32,7 @@ AddEventHandler('esx:setPlayerData', function(key, value)
 		value = { [value.name] = value.grade }
 	end
 
-	PlayerData[key] = value
-	OnPlayerData(key, value)
+	client.updatePlayerData(key, value)
 end)
 
 local Weapon = require 'modules.weapon.client'
