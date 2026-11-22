@@ -1,67 +1,64 @@
+---@class ItemContainerProperties
+---@field slots integer
+---@field maxWeight number
+---@field blacklist? string[] | table<string, boolean>
+---@field whitelist? string[] | table<string, boolean>
+
+---@class ItemContainerDefinition
+---@field slots integer
+---@field maxWeight number
+---@field blacklist? table<string, boolean>
+---@field whitelist? table<string, boolean>
+
+---@type table<string, ItemContainerDefinition>
 local containers = {}
 
-local function arrayToSet(tbl)
-	local size = #tbl
-	local set = table.create(0, size)
+local function normalizeFilter(filter, field)
+	if filter == nil then return end
+	if type(filter) ~= 'table' then TypeError(field, 'table', type(filter)) end
 
-	for i = 1, size do
-		set[tbl[i]] = true
+	local items = {}
+
+	if table.type(filter) == 'array' then
+		for i = 1, #filter do
+			local itemName = filter[i]
+			assert(type(itemName) == 'string' and itemName ~= '', field .. ' must contain item names')
+			items[itemName] = true
+		end
+	else
+		for itemName, enabled in pairs(filter) do
+			assert(type(itemName) == 'string' and itemName ~= '' and type(enabled) == 'boolean',
+				field .. ' must map item names to booleans')
+			if enabled then items[itemName] = true end
+		end
 	end
 
-	return set
+	return items
 end
 
----Registers items with itemName as containers (i.e. backpacks, wallets).
+---Registers or replaces the container definition for an item.
 ---@param itemName string
 ---@param properties ItemContainerProperties
----@todo Rework containers for flexibility, improved data structure; then export this method.
 local function setContainerProperties(itemName, properties)
-	local blacklist, whitelist = properties.blacklist, properties.whitelist
+	assert(type(itemName) == 'string' and itemName ~= '', 'itemName must be a non-empty string')
+	if type(properties) ~= 'table' then TypeError('properties', 'table', type(properties)) end
 
-	if blacklist then
-		local tableType = table.type(blacklist)
-
-		if tableType == 'array' then
-			blacklist = arrayToSet(blacklist)
-		elseif tableType ~= 'hash' then
-			TypeError('blacklist', 'table', type(blacklist))
-		end
-	end
-
-	if whitelist then
-		local tableType = table.type(whitelist)
-
-		if tableType == 'array' then
-			whitelist = arrayToSet(whitelist)
-		elseif tableType ~= 'hash' then
-			TypeError('whitelist', 'table', type(whitelist))
-		end
-	end
+	local slots, maxWeight = properties.slots, properties.maxWeight
+	assert(type(slots) == 'number' and math.tointeger(slots) and slots > 0, 'slots must be a positive integer')
+	assert(type(maxWeight) == 'number' and maxWeight >= 0 and maxWeight < math.huge, 'maxWeight must be a finite non-negative number')
 
 	containers[itemName] = {
-		size = { properties.slots, properties.maxWeight },
-		blacklist = blacklist,
-		whitelist = whitelist,
+		slots = slots,
+		maxWeight = maxWeight,
+		blacklist = normalizeFilter(properties.blacklist, 'blacklist'),
+		whitelist = normalizeFilter(properties.whitelist, 'whitelist'),
 	}
 end
 
+for itemName, properties in pairs(lib.load('data.containers') or {}) do
+	setContainerProperties(itemName, properties)
+end
+
 exports('setContainerProperties', setContainerProperties)
-
-setContainerProperties('paperbag', {
-	slots = 5,
-	maxWeight = 1000,
-	blacklist = { 'testburger' }
-})
-
-setContainerProperties('pizzabox', {
-	slots = 5,
-	maxWeight = 1000,
-	whitelist = { 'pizza' }
-})
-
-setContainerProperties('bag', {
-	slots = 30,
-	maxWeight = 35000
-})
 
 return containers

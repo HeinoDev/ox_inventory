@@ -196,7 +196,7 @@ function Items.Metadata(inv, item, metadata, count)
 		if container then
 			count = 1
 			metadata.container = metadata.container or GenerateText(3)..os.time()
-			metadata.size = container.size
+			metadata.size = { container.slots, container.maxWeight }
 		elseif not next(metadata) then
 			if item.name == 'identification' then
 				count = 1
@@ -252,8 +252,9 @@ end
 ---Validate (and in some cases convert) item metadata when an inventory is being loaded.
 function Items.CheckMetadata(metadata, item, name, ostime)
 	if metadata.bag then
+		local container = Items.containers[name]
 		metadata.container = metadata.bag
-		metadata.size = Items.containers[name]?.size or {5, 1000}
+		metadata.size = container and { container.slots, container.maxWeight } or { 5, 1000 }
 		metadata.bag = nil
 	end
 

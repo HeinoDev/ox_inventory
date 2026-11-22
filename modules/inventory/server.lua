@@ -1763,6 +1763,14 @@ end
 
 local GetLocks = require 'modules.locks'
 
+local function canStoreInContainer(containerName, itemName)
+	local definition = Items.containers[containerName]
+	if not definition then return true end
+
+	return (not definition.whitelist or definition.whitelist[itemName] == true)
+		and not (definition.blacklist and definition.blacklist[itemName])
+end
+
 ---@param source number
 ---@param data SwapSlotData
 lib.callback.register('ox_inventory:swapItems', function(source, data)
@@ -1888,11 +1896,9 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 
 						if containerItem then
 							local toContainer = toInventory.type == 'container'
-							local whitelist = Items.containers[containerItem.name]?.whitelist
-							local blacklist = Items.containers[containerItem.name]?.blacklist
 							local checkItem = toContainer and fromData.name or toData.name
 
-							if (whitelist and not whitelist[checkItem]) or (blacklist and blacklist[checkItem]) then
+							if not canStoreInContainer(containerItem.name, checkItem) then
 								hooks.success = false
 								return
 							end
@@ -1945,6 +1951,11 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 					if not hooks.success then return end
 					if not partiesPresent() then hooks.success = false return end
 
+					if containerItem and toInventory.type == 'container' and not canStoreInContainer(containerItem.name, fromData.name) then
+						hooks.success = false
+						return
+					end
+
 					fromData.count, toData.count = fromCount, toCount
 					toData.weight = toSlotWeight
 
@@ -1989,16 +2000,9 @@ lib.callback.register('ox_inventory:swapItems', function(source, data)
 					if not sameInventory then
 						local toContainer = toInventory.type == 'container'
 
-						if container then
-							if toContainer and containerItem then
-								local whitelist = Items.containers[containerItem.name]?.whitelist
-								local blacklist = Items.containers[containerItem.name]?.blacklist
-
-								if (whitelist and not whitelist[fromData.name]) or (blacklist and blacklist[fromData.name]) then
-									hooks.success = false
-									return
-								end
-							end
+						if toContainer and containerItem and not canStoreInContainer(containerItem.name, fromData.name) then
+							hooks.success = false
+							return
 						end
 
 						fromInventory.weight -= toData.weight
