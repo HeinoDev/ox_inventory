@@ -109,25 +109,33 @@ local defaultInventory = {
 local currentInventory = defaultInventory
 
 local function closeTrunk()
-	if currentInventory.type == 'trunk' then
+	local trunk = currentInventory
+	if trunk.type ~= 'trunk' then return end
+
+	local entity, door = trunk.entity, trunk.door
+	if not entity or not door or not DoesEntityExist(entity) then return end
+
+	local rearDoors = type(door) == 'table'
+
+	if rearDoors then
+		Utils.PlayAnim(0, 'anim@scripted@npc@mission@pln_ig4_cargo@', 'close_door_dax', 3.0, 3.0, 1000, 48, 0.0, 0, 0, 0)
+	else
 		local coords = GetEntityCoords(playerPed, true)
-		---@todo animation for vans?
 		Utils.PlayAnimAdvanced(0, 'anim@heists@fleeca_bank@scope_out@return_case', 'trevor_action', coords.x, coords.y, coords.z, 0.0, 0.0, GetEntityHeading(playerPed), 2.0, 2.0, 1000, 49, 0.25)
-
-		CreateThread(function()
-			local entity = currentInventory.entity
-			local door = currentInventory.door
-			Wait(900)
-
-			if type(door) == 'table' then
-				for i = 1, #door do
-					SetVehicleDoorShut(entity, door[i], false)
-				end
-			else
-				SetVehicleDoorShut(entity, door, false)
-			end
-		end)
 	end
+
+	SetTimeout(rearDoors and 500 or 900, function()
+		if not DoesEntityExist(entity) then return end
+		if invOpen and currentInventory ~= trunk and currentInventory.entity == entity then return end
+
+		if rearDoors then
+			for i = 1, #door do
+				if GetIsDoorValid(entity, door[i]) then SetVehicleDoorShut(entity, door[i], false) end
+			end
+		else
+			SetVehicleDoorShut(entity, door, false)
+		end
+	end)
 end
 
 local CraftingBenches = require 'modules.crafting.client'
@@ -312,25 +320,38 @@ function client.openInventory(inv, data)
     end
 
     if inv == 'trunk' then
+        local trunk = currentInventory
+        local entity = data.entity or data.entityid or NetworkGetEntityFromNetworkId(data.netid)
+        local door = data.door or Inventory.CanAccessTrunk(entity) or (Vehicles.Storage[GetEntityModel(entity)] and 4 or 5)
+        trunk.entity = entity
+        trunk.door = door
+        local rearDoors = type(door) == 'table'
+
+        if not rearDoors and DoesEntityExist(entity) then SetVehicleDoorOpen(entity, door, false, false) end
+
         SetTimeout(200, function()
-            ---@todo animation for vans?
-            Utils.PlayAnim(0, 'anim@heists@prison_heiststation@cop_reactions', 'cop_b_idle', 3.0, 3.0, -1, 49, 0.0, 0, 0, 0)
+            if currentInventory ~= trunk or not invOpen then return end
 
-            local entity = data.entity or NetworkGetEntityFromNetworkId(data.netid)
-            currentInventory.entity = entity
-            currentInventory.door = data.door
+            if DoesEntityExist(entity) then
+                if rearDoors then
+                    Utils.PlayAnim(0, 'misschop_vehicleenter_exit', 'van_ds_open_door_for_chop', 3.0, 3.0, 1000, 48, 0.0, 0, 0, 0)
+                    Wait(350)
 
-            if not currentInventory.door then
-                local vehicleHash = GetEntityModel(entity)
-                local vehicleClass = GetVehicleClass(entity)
-                currentInventory.door = vehicleClass == 12 and { 2, 3 } or Vehicles.Storage[vehicleHash] and 4 or 5
+                    if currentInventory == trunk and invOpen and DoesEntityExist(entity) and Inventory.CanAccessTrunk(entity) then
+                        for i = 1, #door do
+                            if GetIsDoorValid(entity, door[i]) then SetVehicleDoorOpen(entity, door[i], false, false) end
+                        end
+                    end
+                else
+                    Utils.PlayAnim(0, 'anim@heists@prison_heiststation@cop_reactions', 'cop_b_idle', 3.0, 3.0, -1, 49, 0.0, 0, 0, 0)
+                end
             end
 
-            while currentInventory.entity == entity and invOpen and DoesEntityExist(entity) and Inventory.CanAccessTrunk(entity) do
+            while currentInventory == trunk and invOpen and DoesEntityExist(entity) and Inventory.CanAccessTrunk(entity) do
                 Wait(100)
             end
 
-            if invOpen then client.closeInventory() end
+            if currentInventory == trunk and invOpen then client.closeInventory() end
         end)
     end
 

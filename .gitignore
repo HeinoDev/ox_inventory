@@ -1,7 +1,5 @@
-modules/logs/**/
-.cfg
-node_modules
-.idea
-.luarc.jsonc
 web/*
 !web/build
+modules/logs/**/
+.cfg
+.luarc.jsonc

@@ -96,15 +96,7 @@ function Inventory.OpenTrunk(entity)
 
     TaskTurnPedToFaceCoord(cache.ped, coords.x, coords.y, coords.z, 0)
 
-    if not client.openInventory('trunk', { netid = NetworkGetNetworkIdFromEntity(entity), entityid = entity, door = door }) then return end
-
-    if type(door) == 'table' then
-        for i = 1, #door do
-            SetVehicleDoorOpen(entity, door[i], false, false)
-        end
-    else
-        SetVehicleDoorOpen(entity, door --[[@as number]], false, false)
-    end
+    client.openInventory('trunk', { netid = NetworkGetNetworkIdFromEntity(entity), entity = entity, door = door })
 end
 
 if shared.target then
